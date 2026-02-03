@@ -1,0 +1,67 @@
+import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
+import { AccessTokenGuard } from './guards/accessToken.guard';
+import { RefreshTokenGuard } from './guards/refreshToken.guard';
+import { CreateUserDto } from '../users/dto/create-user.dto';
+import { AuthDto } from './dto/auth.dto';
+import { AuthService } from './auth.service';
+
+@ApiTags('Auth')
+@Controller('auth')
+export class AuthController {
+  constructor(private authService: AuthService) {}
+
+  private setRefreshTokenCookie(res: Response, token: string) {
+    res.cookie('refresh_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production', // true in production
+      sameSite: 'strict', // Protects against CSRF
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+  }
+
+  @ApiOperation({ summary: 'Register a new user', description: 'Creates a new user account and sets HttpOnly refresh cookie.' })
+  @ApiResponse({ status: 201, description: 'User successfully registered.', schema: { example: { accessToken: 'jwt...' } } })
+  @Post('signup')
+  async signup(@Body() createUserDto: CreateUserDto, @Res({ passthrough: true }) res: Response) {
+    const tokens = await this.authService.signup(createUserDto);
+    this.setRefreshTokenCookie(res, tokens.refreshToken);
+    return { accessToken: tokens.accessToken };
+  }
+
+  @ApiOperation({ summary: 'Sign in', description: 'Authenticates a user and sets HttpOnly refresh cookie.' })
+  @ApiResponse({ status: 201, description: 'User successfully logged in.', schema: { example: { accessToken: 'jwt...' } } })
+  @Post('signin')
+  async signin(@Body() data: AuthDto, @Res({ passthrough: true }) res: Response) {
+    const tokens = await this.authService.signin(data);
+    this.setRefreshTokenCookie(res, tokens.refreshToken);
+    return { accessToken: tokens.accessToken };
+  }
+
+  @ApiOperation({ summary: 'Logout', description: 'Invalidates the refresh token and clears the cookie.' })
+  @ApiBearerAuth('access-token')
+  @ApiResponse({ status: 200, description: 'Successfully logged out.' })
+  @UseGuards(AccessTokenGuard)
+  @Get('logout')
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    await this.authService.logout((req as any).user['sub']);
+    res.clearCookie('refresh_token');
+    return { message: 'Logged out' };
+  }
+
+  @ApiOperation({ summary: 'Refresh Tokens', description: 'Uses the HttpOnly Refresh Cookie to obtain a new Access Token.' })
+  @ApiResponse({ status: 200, description: 'Tokens successfully refreshed.', schema: { example: { accessToken: 'jwt...' } } })
+  @UseGuards(RefreshTokenGuard)
+  @Get('refresh')
+  async refreshTokens(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const userId = (req as any).user['sub'];
+    const refreshToken = (req as any).user['refreshToken'];
+    const tokens = await this.authService.refreshTokens(userId, refreshToken);
+    
+    // Rotate the refresh token (security best practice)
+    this.setRefreshTokenCookie(res, tokens.refreshToken);
+    
+    return { accessToken: tokens.accessToken };
+  }
+}
