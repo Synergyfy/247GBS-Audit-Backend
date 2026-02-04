@@ -34,6 +34,9 @@ export class User {
   @Column({ default: 'Administrator' })
   role: string;
 
+  @Column({ default: 'Active' })
+  status: string;
+
   @Column({ default: 10 })
   tokens: number;
 

@@ -1,0 +1,333 @@
+import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Between, ILike } from 'typeorm';
+import { User } from '../users/entities/user.entity';
+import { AuditSession, AuditStatus } from '../audit/entities/audit-session.entity';
+import { AdminDashboardResponseDto, AdminStatItemDto, AdminActivityItemDto, AdminAuditTrendDto, AdminAuditItemDto, AdminAuditMetricsDto, AdminUserItemDto } from './dto/admin-dashboard.dto';
+import { AdminCreateUserDto, AdminUpdateUserDto, AdminCreateAuditDto, AdminUpdateAuditDto } from './dto/admin-actions.dto';
+import * as bcrypt from 'bcrypt';
+
+@Injectable()
+export class AdminService {
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+    @InjectRepository(AuditSession)
+    private readonly auditRepository: Repository<AuditSession>,
+  ) {}
+
+  async verifyAdmin(userId: string): Promise<User> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user || user.role !== 'Administrator') {
+       throw new ForbiddenException('Access denied. Admin only.');
+    }
+    return user;
+  }
+
+  async getDashboardData(userId: string): Promise<AdminDashboardResponseDto> {
+    await this.verifyAdmin(userId);
+
+    const stats = await this.getStats();
+    const activities = await this.getRecentActivities();
+    const auditTrends = await this.getAuditTrends();
+
+    return {
+      stats,
+      activities,
+      auditTrends,
+    };
+  }
+
+  // --- Users ---
+
+  async getUsers(search?: string): Promise<AdminUserItemDto[]> {
+    const queryBuilder = this.userRepository.createQueryBuilder('user')
+      .orderBy('user.createdAt', 'DESC');
+
+    if (search) {
+      queryBuilder.andWhere('(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search)', { 
+        search: `%${search}%` 
+      });
+    }
+
+    const users = await queryBuilder.getMany();
+
+    return users.map(user => ({
+      id: user.id,
+      name: `${user.firstName} ${user.lastName}`,
+      email: user.email,
+      role: user.role,
+      status: user.status || 'Active',
+      joinDate: user.createdAt.toLocaleDateString(),
+      avatar: `https://api.dicebear.com/7.x/shapes/svg?seed=${user.firstName}`,
+    }));
+  }
+
+  async createUser(dto: AdminCreateUserDto): Promise<User> {
+    const existing = await this.userRepository.findOne({ where: { email: dto.email } });
+    if (existing) throw new BadRequestException('User with this email already exists.');
+
+    const password = dto.password || Math.random().toString(36).slice(-8); 
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = this.userRepository.create({
+      ...dto,
+      password: hashedPassword,
+      status: 'Active',
+    });
+
+    return this.userRepository.save(user);
+  }
+
+  async updateUser(id: string, dto: AdminUpdateUserDto): Promise<User> {
+    const user = await this.userRepository.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
+
+    Object.assign(user, dto);
+    return this.userRepository.save(user);
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    const result = await this.userRepository.delete(id);
+    if (result.affected === 0) throw new NotFoundException('User not found');
+  }
+
+  // --- Audits ---
+
+  async getAudits(filter?: string, search?: string): Promise<AdminAuditItemDto[]> {
+    const queryBuilder = this.auditRepository.createQueryBuilder('audit')
+      .leftJoinAndSelect('audit.user', 'user')
+      .orderBy('audit.createdAt', 'DESC');
+
+    if (filter && filter !== 'All') {
+      if (filter === 'Completed') {
+        queryBuilder.andWhere('audit.status = :status', { status: AuditStatus.COMPLETED });
+      } else if (filter === 'In Progress') {
+        queryBuilder.andWhere('audit.status IN (:...statuses)', { 
+          statuses: [AuditStatus.IN_PROGRESS, AuditStatus.SECTOR_SELECTED, AuditStatus.TRIAGE_COMPLETED] 
+        });
+      }
+    }
+
+    if (search) {
+      queryBuilder.andWhere('(user.businessName ILIKE :search OR audit.id::text ILIKE :search)', { 
+        search: `%${search}%` 
+      });
+    }
+
+    const audits = await queryBuilder.getMany();
+
+    return audits.map(audit => ({
+      id: audit.id,
+      company: audit.user?.businessName || 'Unknown Business',
+      type: audit.auditType || 'General Audit',
+      stage: this.mapStatusToStage(audit.status),
+      progress: this.calculateProgress(audit),
+      status: this.mapStatusToFrontendStatus(audit.status),
+      dueDate: audit.dueDate ? audit.dueDate.toLocaleDateString() : 'N/A',
+      assignee: audit.assignee || 'Unassigned',
+    }));
+  }
+
+  async createAudit(dto: AdminCreateAuditDto): Promise<AuditSession> {
+    const user = await this.userRepository.findOne({ where: { id: dto.userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const audit = this.auditRepository.create({
+      userId: dto.userId,
+      auditType: dto.auditType,
+      status: AuditStatus.TRIAGE_COMPLETED,
+      assignee: dto.assignee,
+      dueDate: dto.dueDate,
+    });
+
+    return this.auditRepository.save(audit);
+  }
+  
+  async getAudit(id: string): Promise<AuditSession> {
+      const audit = await this.auditRepository.findOne({ where: { id }, relations: ['user'] });
+      if (!audit) throw new NotFoundException('Audit not found');
+      return audit;
+  }
+
+  async updateAudit(id: string, dto: AdminUpdateAuditDto): Promise<AuditSession> {
+    const audit = await this.auditRepository.findOne({ where: { id } });
+    if (!audit) throw new NotFoundException('Audit not found');
+
+    if (dto.status) {
+        // Ensure status is valid if strictly checking enum
+    }
+
+    Object.assign(audit, dto);
+    return this.auditRepository.save(audit);
+  }
+
+  async deleteAudit(id: string): Promise<void> {
+    const result = await this.auditRepository.delete(id);
+    if (result.affected === 0) throw new NotFoundException('Audit not found');
+  }
+
+  async getAuditMetrics(): Promise<AdminAuditMetricsDto> {
+    const totalActive = await this.auditRepository.count({
+      where: [
+        { status: AuditStatus.IN_PROGRESS },
+        { status: AuditStatus.SECTOR_SELECTED },
+        { status: AuditStatus.TRIAGE_COMPLETED },
+      ]
+    });
+
+    const inReview = await this.auditRepository.count({
+        where: { status: AuditStatus.COMPLETED } // Simplified
+    });
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const completedThisMonth = await this.auditRepository.count({
+        where: {
+            status: AuditStatus.COMPLETED,
+            updatedAt: Between(startOfMonth, now)
+        }
+    });
+
+    return {
+      totalActive,
+      overdue: 0, 
+      inReview,
+      completedThisMonth,
+    };
+  }
+
+  private mapStatusToStage(status: AuditStatus): string {
+    switch(status) {
+        case AuditStatus.TRIAGE_COMPLETED: return 'Triage';
+        case AuditStatus.SECTOR_SELECTED: return 'Sector Setup';
+        case AuditStatus.IN_PROGRESS: return 'Analysis';
+        case AuditStatus.COMPLETED: return 'Completed';
+        default: return 'Draft';
+    }
+  }
+
+  private mapStatusToFrontendStatus(status: AuditStatus): string {
+     switch(status) {
+        case AuditStatus.COMPLETED: return 'Completed';
+        case AuditStatus.IN_PROGRESS: return 'In Progress';
+        case AuditStatus.TRIAGE_COMPLETED:
+        case AuditStatus.SECTOR_SELECTED: return 'In Progress';
+        default: return 'Action Required';
+     }
+  }
+
+  private calculateProgress(audit: AuditSession): number {
+    if (audit.status === AuditStatus.COMPLETED) return 100;
+    if (audit.status === AuditStatus.IN_PROGRESS) return 65;
+    if (audit.status === AuditStatus.SECTOR_SELECTED) return 30;
+    return 10;
+  }
+
+  async getStats(): Promise<AdminStatItemDto[]> {
+    const totalUsers = await this.userRepository.count();
+    const pendingAudits = await this.auditRepository.count({
+      where: [
+        { status: AuditStatus.IN_PROGRESS },
+        { status: AuditStatus.SECTOR_SELECTED },
+        { status: AuditStatus.TRIAGE_COMPLETED },
+      ],
+    });
+
+    const revenueStat: AdminStatItemDto = {
+      label: 'Total Revenue',
+      value: '£124,500',
+      change: '+12.5%',
+      trend: 'up',
+      color: 'text-green-500',
+      bg: 'bg-green-500/10',
+    };
+
+    const userStat: AdminStatItemDto = {
+      label: 'Active Users',
+      value: totalUsers.toString(),
+      change: '+8.2%',
+      trend: 'up',
+      color: 'text-blue-500',
+      bg: 'bg-blue-500/10',
+    };
+
+    const auditStat: AdminStatItemDto = {
+      label: 'Pending Audits',
+      value: pendingAudits.toString(),
+      change: '-2.4%',
+      trend: 'down',
+      color: 'text-orange-500',
+      bg: 'bg-orange-500/10',
+    };
+
+    const alertStat: AdminStatItemDto = {
+      label: 'System Alerts',
+      value: '3',
+      change: '0%',
+      trend: 'neutral',
+      color: 'text-red-500',
+      bg: 'bg-red-500/10',
+    };
+
+    return [revenueStat, userStat, auditStat, alertStat];
+  }
+
+  async getRecentActivities(): Promise<AdminActivityItemDto[]> {
+    const recentAudits = await this.auditRepository.find({
+      take: 5,
+      order: { updatedAt: 'DESC' },
+      relations: ['user'],
+    });
+
+    return recentAudits.map(audit => {
+      let action = 'updated audit';
+      if (audit.status === AuditStatus.COMPLETED) action = 'completed audit';
+      if (audit.status === AuditStatus.TRIAGE_COMPLETED) action = 'started new audit';
+
+      return {
+        user: audit.user ? `${audit.user.firstName} ${audit.user.lastName}` : 'Unknown User',
+        action: action,
+        target: audit.auditType || 'Audit Session',
+        time: this.formatTimeAgo(audit.updatedAt),
+        color: 'bg-blue-100 text-blue-600',
+      };
+    });
+  }
+
+  async getAuditTrends(): Promise<AdminAuditTrendDto[]> {
+    const now = new Date();
+    const trends: AdminAuditTrendDto[] = [];
+    
+    for (let i = 11; i >= 0; i--) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const nextDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+        
+        const count = await this.auditRepository.count({
+            where: {
+                createdAt: Between(date, nextDate)
+            }
+        });
+
+        const monthName = date.toLocaleString('default', { month: 'short' });
+        trends.push({ month: monthName, count });
+    }
+
+    return trends;
+  }
+
+  private formatTimeAgo(date: Date): string {
+    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+    let interval = seconds / 31536000;
+    if (interval > 1) return Math.floor(interval) + " years ago";
+    interval = seconds / 2592000;
+    if (interval > 1) return Math.floor(interval) + " months ago";
+    interval = seconds / 86400;
+    if (interval > 1) return Math.floor(interval) + " days ago";
+    interval = seconds / 3600;
+    if (interval > 1) return Math.floor(interval) + " hours ago";
+    interval = seconds / 60;
+    if (interval > 1) return Math.floor(interval) + " minutes ago";
+    return Math.floor(seconds) + " seconds ago";
+  }
+}

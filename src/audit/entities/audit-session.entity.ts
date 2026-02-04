@@ -40,6 +40,12 @@ export class AuditSession {
   @Column({ nullable: true })
   businessTypeId: string;
 
+  @Column({ nullable: true })
+  assignee: string;
+
+  @Column({ nullable: true })
+  dueDate: Date;
+
   // Dynamic Answers Store
   @Column({ type: 'jsonb', default: {} })
   answers: Record<string, any>;

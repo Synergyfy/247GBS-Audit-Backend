@@ -10,6 +10,7 @@ import { AuditModule } from './audit/audit.module';
 import { AIModule } from './ai/ai.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ProtocolsModule } from './protocols/protocols.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { ProtocolsModule } from './protocols/protocols.module';
     AIModule,
     DashboardModule,
     ProtocolsModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
