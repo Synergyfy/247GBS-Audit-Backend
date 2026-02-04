@@ -22,6 +22,21 @@ export class User {
   @Column()
   businessName: string;
 
+  @Column({ nullable: true })
+  phone: string;
+
+  @Column({ nullable: true })
+  location: string;
+
+  @Column({ nullable: true })
+  website: string;
+
+  @Column({ default: 'Administrator' })
+  role: string;
+
+  @Column({ default: 10 })
+  tokens: number;
+
   @Column({ type: 'varchar', nullable: true })
   @Exclude()
   currentHashedRefreshToken: string | null;

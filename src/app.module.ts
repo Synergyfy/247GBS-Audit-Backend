@@ -6,6 +6,10 @@ import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { TriageModule } from './triage/triage.module';
+import { AuditModule } from './audit/audit.module';
+import { AIModule } from './ai/ai.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { ProtocolsModule } from './protocols/protocols.module';
 
 @Module({
   imports: [
@@ -30,6 +34,10 @@ import { TriageModule } from './triage/triage.module';
     UsersModule,
     AuthModule,
     TriageModule,
+    AuditModule,
+    AIModule,
+    DashboardModule,
+    ProtocolsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -66,4 +66,26 @@ export class AIService {
       return { summary: 'AI insight currently unavailable.', actionablePivot: 'Please review your operational waste manual.' };
     }
   }
+
+  async generateAggregatedInsight(history: any[]): Promise<string> {
+    if (!this.model || history.length === 0) return "Perform more audits to unlock systemic AI insights.";
+
+    const prompt = `
+      You are a Lead Forensic Data Analyst. 
+      User Audit History: ${JSON.stringify(history)}
+
+      Task: Identify a systemic pattern or trend across these audits. 
+      Is efficiency improving? Is a specific sector lagging? 
+      Provide a one-sentence high-level "Forensic Intelligence" statement.
+      Keep it professional and data-driven.
+    `;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      return response.text().trim();
+    } catch (error) {
+      return "Systemic pattern analysis is currently stabilizing. Please check back after your next audit.";
+    }
+  }
 }

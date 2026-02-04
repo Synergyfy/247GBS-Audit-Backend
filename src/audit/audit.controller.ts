@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards, Req, NotFoundException, Patch, Put, Body, Post } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards, Req, NotFoundException, Patch, Put, Body, Post, Delete } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, ApiBody } from '@nestjs/swagger';
 import { AccessTokenGuard } from '../auth/guards/accessToken.guard';
 import { AuditService } from './audit.service';
@@ -55,6 +55,16 @@ export class AuditController {
     const session = await this.auditService.findOne(id, user.sub);
     if (!session) throw new NotFoundException('Audit session not found');
     return session;
+  }
+
+  @Delete(':id')
+  @UseGuards(AccessTokenGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Delete Audit', description: 'Removes an audit from the vault.' })
+  @ApiResponse({ status: 200, description: 'Audit deleted successfully.' })
+  async remove(@Param('id') id: string, @Req() req: Request) {
+    const user = (req as any).user;
+    return this.auditService.remove(id, user.sub);
   }
 
   @Patch(':id/sector')

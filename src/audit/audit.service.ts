@@ -36,6 +36,12 @@ export class AuditService {
     });
   }
 
+  async remove(id: string, userId: string): Promise<void> {
+    const session = await this.findOne(id, userId);
+    if (!session) throw new NotFoundException('Audit session not found');
+    await this.auditRepository.remove(session);
+  }
+
   async findAllByUser(userId: string): Promise<AuditSession[]> {
     return this.auditRepository.find({
       where: { userId },
