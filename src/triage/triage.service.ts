@@ -12,7 +12,7 @@ export class TriageService {
     @InjectRepository(AuditTriage)
     private triageRepository: Repository<AuditTriage>,
     private auditService: AuditService,
-  ) {}
+  ) { }
 
   async create(createTriageDto: CreateTriageDto, user: User) {
     // 1. Calculate Decision Logic (The Henry Model)
@@ -55,23 +55,36 @@ export class TriageService {
     const stock = data.stockExtent || 0;
     const capacity = data.capacityExtent || 0;
     const impactSerious = data.stockImpact === 'serious' || data.capacityImpact === 'serious';
+    const highCosts = data.monthlyTurnover === '50k+' || data.stockValue === '50k+'; // Simple check for "high costs"
 
-    // Rule 1: CRITICAL
-    if (stock >= 31 || (stock >= 16 && impactSerious)) {
+    // Rule 1: CRITICAL PATH
+    // Triggered if: >= 31% OR (>= 16% + serious impact + high costs)
+    if (stock >= 31 || capacity >= 31) {
+      if (impactSerious) {
+        return { decision: TriageDecision.CRITICAL, auditType: AuditType.LONG_FORM };
+      }
+      return { decision: TriageDecision.FULL_AUDIT, auditType: AuditType.LONG_FORM };
+    }
+
+    if ((stock >= 16 || capacity >= 16) && impactSerious && highCosts) {
       return { decision: TriageDecision.CRITICAL, auditType: AuditType.LONG_FORM };
     }
 
-    // Rule 2: FULL AUDIT
+    // Rule 2: FULL AUDIT PATH
+    // Triggered if: Any area >= 16% OR impact = "serious"
     if (stock >= 16 || capacity >= 16 || impactSerious) {
       return { decision: TriageDecision.FULL_AUDIT, auditType: AuditType.LONG_FORM };
     }
 
-    // Rule 3: PARTIAL AUDIT
+    // Rule 3: PARTIAL AUDIT PATH
+    // Triggered if: Any area >= 7%
     if (stock >= 7 || capacity >= 7) {
       return { decision: TriageDecision.PARTIAL_AUDIT, auditType: AuditType.SHORT_FORM };
     }
 
-    // Rule 4: NO AUDIT
+    // Rule 4: NO AUDIT PATH
+    // Triggered if: Stock < 7% AND Capacity < 7%
     return { decision: TriageDecision.NO_AUDIT, auditType: AuditType.NONE };
   }
+
 }
