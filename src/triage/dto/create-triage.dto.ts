@@ -37,6 +37,16 @@ export class CreateTriageDto {
   @IsOptional()
   confidenceStock: string;
 
+  @ApiProperty({ example: 'fairly', description: 'Confidence in capacity estimate' })
+  @IsString()
+  @IsOptional()
+  confidenceCapacity: string;
+
+  @ApiProperty({ example: 'under-min-wage', description: 'Monthly staff cost range' })
+  @IsString()
+  @IsOptional()
+  staffCost: string;
+
   @ApiProperty({ example: '10k-50k', description: 'Monthly turnover range' })
   @IsString()
   @IsOptional()

@@ -48,6 +48,12 @@ export class AuditTriage {
   confidenceStock: string;
 
   @Column({ nullable: true })
+  confidenceCapacity: string;
+
+  @Column({ nullable: true })
+  staffCost: string;
+
+  @Column({ nullable: true })
   monthlyTurnover: string;
 
   @Column({ nullable: true })
