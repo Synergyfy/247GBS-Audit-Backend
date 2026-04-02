@@ -31,10 +31,44 @@ export class AuthController {
   }
 
   @ApiOperation({ summary: 'Sign in', description: 'Authenticates a user and sets HttpOnly refresh cookie.' })
-  @ApiResponse({ status: 201, description: 'User successfully logged in.', schema: { example: { accessToken: 'jwt...' } } })
+  @ApiResponse({ status: 201, description: 'User successfully logged in or MFA required.', schema: { example: { accessToken: 'jwt...', mfaRequired: false } } })
   @Post('signin')
   async signin(@Body() data: AuthDto, @Res({ passthrough: true }) res: Response) {
-    const { tokens, user } = await this.authService.signin(data);
+    const result = await this.authService.signin(data);
+    
+    if ('mfaRequired' in result) {
+      return result;
+    }
+
+    const { tokens, user } = result;
+    this.setRefreshTokenCookie(res, tokens.refreshToken);
+    return { accessToken: tokens.accessToken, user };
+  }
+
+  @ApiOperation({ summary: 'Generate MFA Secret', description: 'Generates a new TOTP secret and QR code for the authenticated user.' })
+  @ApiBearerAuth('access-token')
+  @UseGuards(AccessTokenGuard)
+  @Post('mfa/generate')
+  async generateMfaSecret(@Req() req: Request) {
+    const userId = (req as any).user['sub'];
+    return this.authService.generateMfaSecret(userId);
+  }
+
+  @ApiOperation({ summary: 'Enable MFA', description: 'Verifies the provided TOTP code and enables MFA for the user.' })
+  @ApiBearerAuth('access-token')
+  @ApiBody({ schema: { example: { code: '123456' } } })
+  @UseGuards(AccessTokenGuard)
+  @Post('mfa/enable')
+  async enableMfa(@Req() req: Request, @Body('code') code: string) {
+    const userId = (req as any).user['sub'];
+    return this.authService.enableMfa(userId, code);
+  }
+
+  @ApiOperation({ summary: 'Authenticate with MFA', description: 'Second step of login: verifies the TOTP code for a user with MFA enabled.' })
+  @ApiBody({ schema: { example: { userId: 'uuid...', code: '123456' } } })
+  @Post('mfa/authenticate')
+  async authenticateWithMfa(@Body('userId') userId: string, @Body('code') code: string, @Res({ passthrough: true }) res: Response) {
+    const { tokens, user } = await this.authService.signinWithMfa(userId, code);
     this.setRefreshTokenCookie(res, tokens.refreshToken);
     return { accessToken: tokens.accessToken, user };
   }
