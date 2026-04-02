@@ -11,6 +11,7 @@ import { AIModule } from './ai/ai.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ProtocolsModule } from './protocols/protocols.module';
 import { AdminModule } from './admin/admin.module';
+import { SpecialistsModule } from './dashboard/specialists/specialists.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { AdminModule } from './admin/admin.module';
     DashboardModule,
     ProtocolsModule,
     AdminModule,
+    SpecialistsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

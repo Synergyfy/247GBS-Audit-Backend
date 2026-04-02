@@ -1,10 +1,11 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, ILike } from 'typeorm';
+import { Repository, Between, ILike, LessThan } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { AuditSession, AuditStatus } from '../audit/entities/audit-session.entity';
 import { AdminDashboardResponseDto, AdminStatItemDto, AdminActivityItemDto, AdminAuditTrendDto, AdminAuditItemDto, AdminAuditMetricsDto, AdminUserItemDto } from './dto/admin-dashboard.dto';
 import { AdminCreateUserDto, AdminUpdateUserDto, AdminCreateAuditDto, AdminUpdateAuditDto } from './dto/admin-actions.dto';
+import { Invoice } from '../protocols/entities/invoice.entity';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -14,6 +15,8 @@ export class AdminService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(AuditSession)
     private readonly auditRepository: Repository<AuditSession>,
+    @InjectRepository(Invoice)
+    private readonly invoiceRepository: Repository<Invoice>,
   ) {}
 
   async verifyAdmin(userId: string): Promise<User> {
@@ -168,12 +171,14 @@ export class AdminService {
   }
 
   async getAuditMetrics(): Promise<AdminAuditMetricsDto> {
+    const activeStatuses = [
+      AuditStatus.IN_PROGRESS,
+      AuditStatus.SECTOR_SELECTED,
+      AuditStatus.TRIAGE_COMPLETED
+    ];
+
     const totalActive = await this.auditRepository.count({
-      where: [
-        { status: AuditStatus.IN_PROGRESS },
-        { status: AuditStatus.SECTOR_SELECTED },
-        { status: AuditStatus.TRIAGE_COMPLETED },
-      ]
+      where: activeStatuses.map(status => ({ status }))
     });
 
     const inReview = await this.auditRepository.count({
@@ -189,9 +194,13 @@ export class AdminService {
         }
     });
 
+    const overdue = await this.auditRepository.count({
+      where: activeStatuses.map(status => ({ status, dueDate: LessThan(now) }))
+    });
+
     return {
       totalActive,
-      overdue: 0, 
+      overdue, 
       inReview,
       completedThisMonth,
     };
@@ -226,19 +235,65 @@ export class AdminService {
 
   async getStats(): Promise<AdminStatItemDto[]> {
     const totalUsers = await this.userRepository.count();
+    const now = new Date();
+    const activeStatuses = [AuditStatus.IN_PROGRESS, AuditStatus.SECTOR_SELECTED, AuditStatus.TRIAGE_COMPLETED];
+    
     const pendingAudits = await this.auditRepository.count({
-      where: [
-        { status: AuditStatus.IN_PROGRESS },
-        { status: AuditStatus.SECTOR_SELECTED },
-        { status: AuditStatus.TRIAGE_COMPLETED },
-      ],
+      where: activeStatuses.map(status => ({ status })),
+    });
+
+    // 1. Calculate Overdue Audits (System Alerts)
+    const systemAlertsCount = await this.auditRepository.count({
+      where: activeStatuses.map(status => ({ status, dueDate: LessThan(now) })),
+    });
+
+    // 2. Calculate Revenue
+    const invoices = await this.invoiceRepository.find();
+    let totalRevenue = 0;
+    invoices.forEach(inv => {
+      const amount = parseFloat(inv.amount || '0');
+      if (!isNaN(amount)) {
+        totalRevenue += amount;
+      }
+    });
+
+    // 3. Trends (Last 30 days vs Previous 30 days)
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+    const calculateChange = (current: number, previous: number) => {
+      if (previous === 0) return current > 0 ? '+100%' : '0%';
+      const percent = ((current - previous) / previous) * 100;
+      const sign = percent > 0 ? '+' : '';
+      return `${sign}${percent.toFixed(1)}%`;
+    };
+
+    const getTrend = (current: number, previous: number) => {
+      if (current === previous) return 'neutral';
+      return current > previous ? 'up' : 'down';
+    };
+
+    const usersCurrent = await this.userRepository.count({ where: { createdAt: Between(thirtyDaysAgo, now) } });
+    const usersPrevious = await this.userRepository.count({ where: { createdAt: Between(sixtyDaysAgo, thirtyDaysAgo) } });
+
+    const auditsCurrent = await this.auditRepository.count({ where: { createdAt: Between(thirtyDaysAgo, now) } });
+    const auditsPrevious = await this.auditRepository.count({ where: { createdAt: Between(sixtyDaysAgo, thirtyDaysAgo) } });
+
+    let revCurrent = 0;
+    let revPrevious = 0;
+    invoices.forEach(inv => {
+      const amount = parseFloat(inv.amount || '0');
+      if (isNaN(amount)) return;
+      const invDate = new Date(inv.date);
+      if (invDate >= thirtyDaysAgo && invDate <= now) revCurrent += amount;
+      else if (invDate >= sixtyDaysAgo && invDate < thirtyDaysAgo) revPrevious += amount;
     });
 
     const revenueStat: AdminStatItemDto = {
       label: 'Total Revenue',
-      value: '£124,500',
-      change: '+12.5%',
-      trend: 'up',
+      value: `£${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      change: calculateChange(revCurrent, revPrevious),
+      trend: getTrend(revCurrent, revPrevious),
       color: 'text-green-500',
       bg: 'bg-green-500/10',
     };
@@ -246,8 +301,8 @@ export class AdminService {
     const userStat: AdminStatItemDto = {
       label: 'Active Users',
       value: totalUsers.toString(),
-      change: '+8.2%',
-      trend: 'up',
+      change: calculateChange(usersCurrent, usersPrevious),
+      trend: getTrend(usersCurrent, usersPrevious),
       color: 'text-blue-500',
       bg: 'bg-blue-500/10',
     };
@@ -255,16 +310,16 @@ export class AdminService {
     const auditStat: AdminStatItemDto = {
       label: 'Pending Audits',
       value: pendingAudits.toString(),
-      change: '-2.4%',
-      trend: 'down',
+      change: calculateChange(auditsCurrent, auditsPrevious),
+      trend: getTrend(auditsCurrent, auditsPrevious),
       color: 'text-orange-500',
       bg: 'bg-orange-500/10',
     };
 
     const alertStat: AdminStatItemDto = {
       label: 'System Alerts',
-      value: '3',
-      change: '0%',
+      value: systemAlertsCount.toString(),
+      change: '0%', // Alerts usually fluctuate widely
       trend: 'neutral',
       color: 'text-red-500',
       bg: 'bg-red-500/10',

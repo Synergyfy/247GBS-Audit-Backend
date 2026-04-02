@@ -15,16 +15,18 @@ export class ProtocolsController {
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Get Security Status', description: 'Returns 2FA status and key info.' })
   @ApiResponse({ status: 200, type: SecurityStatusDto })
-  async getSecurity() {
-    return this.protocolsService.getSecurityStatus();
+  async getSecurity(@Req() req: Request) {
+    const userId = (req as any).user.sub;
+    return this.protocolsService.getSecurityStatus(userId);
   }
 
   @Post('security/rotate-key')
   @UseGuards(AccessTokenGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Rotate Master Key', description: 'Rotates the vault encryption key.' })
-  async rotateKey() {
-    return this.protocolsService.rotateMasterKey();
+  async rotateKey(@Req() req: Request) {
+    const userId = (req as any).user.sub;
+    return this.protocolsService.rotateMasterKey(userId);
   }
 
   @Get('billing')
@@ -32,8 +34,9 @@ export class ProtocolsController {
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Get Billing Info', description: 'Returns subscription and invoice history.' })
   @ApiResponse({ status: 200, type: BillingInfoDto })
-  async getBilling() {
-    return this.protocolsService.getBillingInfo();
+  async getBilling(@Req() req: Request) {
+    const userId = (req as any).user.sub;
+    return this.protocolsService.getBillingInfo(userId);
   }
 
   @Get('notifications')
@@ -41,16 +44,18 @@ export class ProtocolsController {
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Get Notification Settings', description: 'Returns user notification preferences.' })
   @ApiResponse({ status: 200, type: [NotificationSettingDto] })
-  async getNotifications() {
-    return this.protocolsService.getNotifications();
+  async getNotifications(@Req() req: Request) {
+    const userId = (req as any).user.sub;
+    return this.protocolsService.getNotifications(userId);
   }
 
   @Patch('notifications')
   @UseGuards(AccessTokenGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Update Notification', description: 'Toggles a notification setting.' })
-  async updateNotification(@Body() dto: UpdateNotificationDto) {
-    return this.protocolsService.updateNotification(dto.title, dto.active);
+  async updateNotification(@Req() req: Request, @Body() dto: UpdateNotificationDto) {
+    const userId = (req as any).user.sub;
+    return this.protocolsService.updateNotification(userId, dto.title, dto.active);
   }
 
   @Post('tokens/purchase')

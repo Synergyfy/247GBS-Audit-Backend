@@ -1,5 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToOne, OneToMany } from 'typeorm';
 import { Exclude } from 'class-transformer';
+import { BillingProfile } from '../../protocols/entities/billing-profile.entity';
+import { NotificationSetting } from '../../protocols/entities/notification-setting.entity';
 
 @Entity('audit_users')
 export class User {
@@ -39,6 +41,12 @@ export class User {
 
   @Column({ default: 10 })
   tokens: number;
+
+  @OneToOne(() => BillingProfile, (profile) => profile.user)
+  billingProfile: BillingProfile;
+
+  @OneToMany(() => NotificationSetting, (setting) => setting.user)
+  notificationSettings: NotificationSetting[];
 
   @Column({ type: 'varchar', nullable: true })
   @Exclude()
