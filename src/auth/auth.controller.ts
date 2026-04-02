@@ -25,18 +25,18 @@ export class AuthController {
   @ApiResponse({ status: 201, description: 'User successfully registered.', schema: { example: { accessToken: 'jwt...' } } })
   @Post('signup')
   async signup(@Body() createUserDto: CreateUserDto, @Res({ passthrough: true }) res: Response) {
-    const tokens = await this.authService.signup(createUserDto);
+    const { tokens, user } = await this.authService.signup(createUserDto);
     this.setRefreshTokenCookie(res, tokens.refreshToken);
-    return { accessToken: tokens.accessToken };
+    return { accessToken: tokens.accessToken, user };
   }
 
   @ApiOperation({ summary: 'Sign in', description: 'Authenticates a user and sets HttpOnly refresh cookie.' })
   @ApiResponse({ status: 201, description: 'User successfully logged in.', schema: { example: { accessToken: 'jwt...' } } })
   @Post('signin')
   async signin(@Body() data: AuthDto, @Res({ passthrough: true }) res: Response) {
-    const tokens = await this.authService.signin(data);
+    const { tokens, user } = await this.authService.signin(data);
     this.setRefreshTokenCookie(res, tokens.refreshToken);
-    return { accessToken: tokens.accessToken };
+    return { accessToken: tokens.accessToken, user };
   }
 
   @ApiOperation({ summary: 'Logout', description: 'Invalidates the refresh token and clears the cookie.' })

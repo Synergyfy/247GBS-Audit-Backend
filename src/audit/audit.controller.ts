@@ -2,12 +2,27 @@ import { Controller, Get, Param, UseGuards, Req, NotFoundException, Patch, Put, 
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, ApiBody } from '@nestjs/swagger';
 import { AccessTokenGuard } from '../auth/guards/accessToken.guard';
 import { AuditService } from './audit.service';
+import { AuditVaultStatsDto } from './dto/audit-stats.dto';
 import type { Request } from 'express';
 
 @ApiTags('Audit')
 @Controller('audit')
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
+
+  @Get('stats')
+  @UseGuards(AccessTokenGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Get Vault Statistics', description: 'Returns aggregated stats for the audit vault.' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Vault stats retrieved successfully.',
+    type: AuditVaultStatsDto
+  })
+  async getVaultStats(@Req() req: Request) {
+    const user = (req as any).user;
+    return this.auditService.getVaultStats(user.sub);
+  }
 
   @Get()
   @UseGuards(AccessTokenGuard)
@@ -70,9 +85,17 @@ export class AuditController {
   @Patch(':id/sector')
   @UseGuards(AccessTokenGuard)
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Select Sector', description: 'Sets the business sector for the audit.' })
-  @ApiBody({ schema: { example: { sectorId: 'hospitality-food', groupId: 'dining', businessTypeId: 'fine-dining' } } })
-  @ApiResponse({ status: 200, description: 'Sector updated.', schema: { example: { id: 'uuid-5678', status: 'SECTOR_SELECTED', sectorId: 'hospitality-food' } } })
+  @ApiOperation({ summary: 'Select Sector', description: 'Sets the business sector for the audit. Supported sectorId: hospitality-food, retail-wholesale, professional-services, manufacturing.' })
+  @ApiBody({ 
+    schema: { 
+      example: { 
+        sectorId: 'retail-wholesale', 
+        groupId: 'inventory', 
+        businessTypeId: 'warehouse' 
+      } 
+    } 
+  })
+  @ApiResponse({ status: 200, description: 'Sector updated.', schema: { example: { id: 'uuid-5678', status: 'SECTOR_SELECTED', sectorId: 'retail-wholesale' } } })
   async updateSector(
     @Param('id') id: string,
     @Body() body: { sectorId: string; groupId: string; businessTypeId: string },
@@ -85,14 +108,25 @@ export class AuditController {
   @Put(':id/answers')
   @UseGuards(AccessTokenGuard)
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Submit Answers', description: 'Updates audit answers and triggers real-time recalculation.' })
-  @ApiBody({ schema: { example: { "hosp-dining-stock-trigger-01": 25, "stock_value_excess": 5000 } } })
+  @ApiOperation({ 
+    summary: 'Submit Answers', 
+    description: 'Updates audit answers and triggers real-time recalculation. Payload keys depend on the selected sector (see Appendix in ENDPOINTS.md).' 
+  })
+  @ApiBody({ 
+    schema: { 
+      example: { 
+        "retail-inventory-shrink-deep-01": 1500, 
+        "retail-logistics-delay-trigger-01": 12,
+        "stock_value_excess": 25000 
+      } 
+    } 
+  })
   @ApiResponse({ 
     status: 200, 
     description: 'Answers saved and metrics recalculated.',
     schema: {
       example: {
-        calculatedMetrics: { capacityDrainPct: 25, totalStockImpact: 15000, annualRecovery: 12000, impactScore: 65 }
+        calculatedMetrics: { capacityDrainPct: 15, totalStockImpact: 8500, annualRecovery: 24000, impactScore: 40 }
       }
     }
   })

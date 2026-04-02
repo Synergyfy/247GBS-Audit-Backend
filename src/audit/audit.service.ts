@@ -100,4 +100,32 @@ export class AuditService {
     session.status = AuditStatus.COMPLETED;
     return this.auditRepository.save(session);
   }
+
+  async getVaultStats(userId: string) {
+    const audits = await this.findAllByUser(userId);
+    const completedAudits = audits.filter(a => a.status === AuditStatus.COMPLETED);
+
+    // Calculate total data points (number of answers)
+    const totalDataPoints = audits.reduce((sum, audit) => {
+      return sum + Object.keys(audit.answers || {}).length;
+    }, 0);
+
+    // Calculate efficiency trend (mocking the comparison logic for now based on last two audits)
+    let trendStr = "0%";
+    if (completedAudits.length >= 2) {
+      const latest = completedAudits[0].calculatedMetrics?.capacityDrainPct || 0;
+      const previous = completedAudits[1].calculatedMetrics?.capacityDrainPct || 0;
+      
+      if (previous > 0) {
+        const diff = ((previous - latest) / previous) * 100;
+        trendStr = `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%`;
+      }
+    }
+
+    return {
+      totalDataPoints,
+      efficiencyTrend: trendStr,
+      archivalIntegrity: "100%" // Static for now as per design
+    };
+  }
 }
