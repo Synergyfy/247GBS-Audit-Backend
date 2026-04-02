@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { AccessTokenStrategy } from './strategies/accessToken.strategy';
 import { RefreshTokenStrategy } from './strategies/refreshToken.strategy';
 import { UsersModule } from '../users/users.module';
+import { MfaService } from './mfa.service';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { UsersModule } from '../users/users.module';
       PassportModule,
     ],
   controllers: [AuthController],
-  providers: [AuthService, AccessTokenStrategy, RefreshTokenStrategy],
+  providers: [AuthService, MfaService, AccessTokenStrategy, RefreshTokenStrategy],
+  exports: [AuthService, MfaService],
 })
 export class AuthModule {}

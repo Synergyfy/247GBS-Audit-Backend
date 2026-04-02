@@ -52,6 +52,13 @@ export class User {
   @Exclude()
   currentHashedRefreshToken: string | null;
 
+  @Column({ nullable: true })
+  @Exclude()
+  mfaSecret: string;
+
+  @Column({ default: false })
+  isMfaEnabled: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 
