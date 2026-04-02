@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { generateSecret, generateURI, verify } from 'otplib';
+import * as speakeasy from 'speakeasy';
 import { toDataURL } from 'qrcode';
 import { ConfigService } from '@nestjs/config';
 
@@ -7,25 +7,28 @@ import { ConfigService } from '@nestjs/config';
 export class MfaService {
   constructor(private readonly configService: ConfigService) {}
 
-  async generateSecret() {
-    return generateSecret();
+  async generateSecret(): Promise<string> {
+    const secret = speakeasy.generateSecret({ length: 20 });
+    return secret.base32;
   }
 
-  async generateQrCodeUri(email: string, secret: string) {
+  async generateQrCodeUri(email: string, secret: string): Promise<string> {
     const appName = this.configService.get<string>('APP_NAME') || '247GBS Audit';
-    const otpauth = generateURI({
+    const otpauth = speakeasy.otpauthURL({
       issuer: appName,
-      label: email,
+      label: encodeURIComponent(email),
       secret: secret,
+      encoding: 'base32',
     });
     return toDataURL(otpauth);
   }
 
   async verifyCode(code: string, secret: string): Promise<boolean> {
-    const result = await verify({
-      token: code,
+    return speakeasy.totp.verify({
       secret: secret,
+      encoding: 'base32',
+      token: code,
+      window: 1, // allow 1 step tolerance (30s before/after)
     });
-    return result.valid;
   }
 }
