@@ -1,10 +1,11 @@
-import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, ForbiddenException, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { AuthDto } from './dto/auth.dto';
+import { MfaService } from './mfa.service';
 
 @Injectable()
 export class AuthService {
@@ -12,6 +13,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private mfaService: MfaService,
   ) {}
 
   async signup(createUserDto: CreateUserDto) {
@@ -28,7 +30,7 @@ export class AuthService {
 
     const tokens = await this.getTokens(newUser.id, newUser.email);
     await this.updateRefreshToken(newUser.id, tokens.refreshToken);
-    return tokens;
+    return { tokens, user: newUser };
   }
 
   async signin(data: AuthDto) {
@@ -38,9 +40,53 @@ export class AuthService {
     const passwordMatches = await bcrypt.compare(data.password, user.password);
     if (!passwordMatches) throw new BadRequestException('Invalid credentials');
 
+    if (user.isMfaEnabled) {
+      return {
+        mfaRequired: true,
+        userId: user.id,
+        message: 'MFA is enabled. Please provide the 6-digit code.',
+      };
+    }
+
     const tokens = await this.getTokens(user.id, user.email);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
-    return tokens;
+    return { tokens, user };
+  }
+
+  async signinWithMfa(userId: string, code: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user || !user.mfaSecret) throw new UnauthorizedException('Authentication failed');
+
+    const isCodeValid = await this.mfaService.verifyCode(code, user.mfaSecret);
+    if (!isCodeValid) throw new BadRequestException('Invalid MFA code');
+
+    const tokens = await this.getTokens(user.id, user.email);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    return { tokens, user };
+  }
+
+  async generateMfaSecret(userId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new BadRequestException('User not found');
+
+    const secret = await this.mfaService.generateSecret();
+    const qrCode = await this.mfaService.generateQrCodeUri(user.email, secret);
+
+    // Temp store secret in DB before verified enablement
+    await this.usersService.update(userId, { mfaSecret: secret });
+
+    return { secret, qrCode };
+  }
+
+  async enableMfa(userId: string, code: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user || !user.mfaSecret) throw new BadRequestException('MFA Setup not initiated');
+
+    const isCodeValid = await this.mfaService.verifyCode(code, user.mfaSecret);
+    if (!isCodeValid) throw new BadRequestException('Invalid MFA code');
+
+    await this.usersService.update(userId, { isMfaEnabled: true });
+    return { success: true, message: 'MFA enabled successfully' };
   }
 
   async logout(userId: string) {

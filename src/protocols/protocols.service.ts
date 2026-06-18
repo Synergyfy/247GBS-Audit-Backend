@@ -1,18 +1,26 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { SecurityStatusDto, BillingInfoDto, NotificationSettingDto } from './dto/protocols.dto';
+import { NotificationSetting } from './entities/notification-setting.entity';
+import { BillingProfile } from './entities/billing-profile.entity';
+import { Invoice } from './entities/invoice.entity';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class ProtocolsService {
-  // In-memory store for demo purposes (would be DB in production)
-  private notifications: NotificationSettingDto[] = [
-    { title: "Forensic Alerts", desc: "Immediate notification of detected capacity leaks.", active: true },
-    { title: "Strategic Insights", desc: "Weekly AI-generated market trend analysis.", active: true },
-    { title: "Specialist Messages", desc: "Communications from verified network consultants.", active: false },
-    { title: "Vault Security", desc: "Alerts for master key rotation and access logs.", active: true },
-    { title: "Billing Reports", desc: "Invoices and credit balance notifications.", active: false },
-  ];
+  constructor(
+    @InjectRepository(NotificationSetting)
+    private readonly notificationRepository: Repository<NotificationSetting>,
+    @InjectRepository(BillingProfile)
+    private readonly billingRepository: Repository<BillingProfile>,
+    @InjectRepository(Invoice)
+    private readonly invoiceRepository: Repository<Invoice>,
+    private readonly usersService: UsersService,
+  ) {}
 
-  async getSecurityStatus(): Promise<SecurityStatusDto> {
+  async getSecurityStatus(userId: string): Promise<SecurityStatusDto> {
+    // For now, these are derived/static for the demo but could be added to User entity
     return {
       is2FAEnabled: true,
       passwordStrength: 'High',
@@ -21,39 +29,73 @@ export class ProtocolsService {
     };
   }
 
-  async rotateMasterKey(): Promise<{ success: boolean; message: string }> {
+  async rotateMasterKey(userId: string): Promise<{ success: boolean; message: string }> {
+    // Logic for rotating key would go here
     return { success: true, message: 'Master Key Rotated Successfully' };
   }
 
-  async getBillingInfo(): Promise<BillingInfoDto> {
+  async getBillingInfo(userId: string): Promise<BillingInfoDto> {
+    const profile = await this.billingRepository.findOne({
+      where: { userId },
+      relations: ['invoices'],
+    });
+
+    if (!profile) {
+      return {
+        planName: 'Tier 1: Explorer',
+        price: '£0 / Month',
+        last4: '----',
+        expiry: '--/--',
+        history: [],
+      };
+    }
+
     return {
-      planName: 'Growth Specialist',
-      price: '£499 / Month',
-      last4: '•••• •••• •••• 4242',
-      expiry: '12/28',
-      history: [
-        { id: "#INV-902", date: "Jan 01, 2026", amount: "£499.00", status: "Paid" },
-        { id: "#INV-841", date: "Dec 01, 2025", amount: "£499.00", status: "Paid" },
-        { id: "#INV-720", date: "Nov 01, 2025", amount: "£499.00", status: "Paid" },
-      ]
+      planName: profile.planName,
+      price: profile.price,
+      last4: profile.last4,
+      expiry: profile.expiry,
+      history: (profile.invoices || []).map((inv) => ({
+        id: inv.invoiceNumber,
+        date: inv.date,
+        amount: inv.amount,
+        status: inv.status,
+      })),
     };
   }
 
-  async getNotifications(): Promise<NotificationSettingDto[]> {
-    return this.notifications;
+  async getNotifications(userId: string): Promise<NotificationSettingDto[]> {
+    const settings = await this.notificationRepository.find({ where: { userId } });
+    if (settings.length === 0) {
+        // Fallback for un-seeded users to show something
+        return [
+            { title: "Forensic Alerts", desc: "Immediate notification of detected capacity leaks.", active: true },
+            { title: "Strategic Insights", desc: "Weekly AI-generated market trend analysis.", active: true },
+        ];
+    }
+    return settings.map((s) => ({
+      title: s.title,
+      desc: s.description,
+      active: s.isActive,
+    }));
   }
 
-  async updateNotification(title: string, active: boolean): Promise<NotificationSettingDto[]> {
-    const setting = this.notifications.find(n => n.title === title);
+  async updateNotification(userId: string, title: string, active: boolean): Promise<NotificationSettingDto[]> {
+    const setting = await this.notificationRepository.findOne({ where: { userId, title } });
     if (setting) {
-      setting.active = active;
+      setting.isActive = active;
+      await this.notificationRepository.save(setting);
     }
-    return this.notifications;
+    return this.getNotifications(userId);
   }
 
   async purchaseTokens(amount: number, userId: string): Promise<{ balance: number }> {
-    // Logic would integrate with UsersService to update DB
-    // For now returning mock success
-    return { balance: 22 }; 
+    const user = await this.usersService.findById(userId);
+    if (user) {
+      const newBalance = (user.tokens || 0) + amount;
+      await this.usersService.update(userId, { tokens: newBalance });
+      return { balance: newBalance };
+    }
+    return { balance: 0 };
   }
 }
