@@ -33,7 +33,7 @@ export class User {
   @Column({ nullable: true })
   website: string;
 
-  @Column({ default: 'Administrator' })
+  @Column({ default: 'User' })
   role: string;
 
   @Column({ default: 'Active' })
