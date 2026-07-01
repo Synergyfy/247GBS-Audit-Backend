@@ -11,8 +11,11 @@ export class UsersService {
     private usersRepository: Repository<User>,
   ) {}
 
-  async create(createUserDto: CreateUserDto): Promise<User> {
-    const user = this.usersRepository.create(createUserDto);
+  async create(createUserDto: CreateUserDto & { role?: string }): Promise<User> {
+    const user = this.usersRepository.create({
+      ...createUserDto,
+      role: createUserDto.role || 'User',
+    });
     return this.usersRepository.save(user);
   }
 
