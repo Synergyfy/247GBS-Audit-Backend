@@ -26,7 +26,7 @@ export class AIService {
 
       Task: Generate 3 critical forensic follow-up questions to drill down into the biggest leaks identified.
       Each question must be specific to their industry.
-      Return the result as a JSON array of objects with "id", "text", and "helpText".
+      Return the result as a JSON array of objects with "id", "question", and "reason".
     `;
 
     try {
@@ -51,8 +51,12 @@ export class AIService {
       Recovery Potential: £${metrics.annualRecovery} per year.
       Full Data: ${JSON.stringify(answers)}
 
-      Task: Provide a high-impact strategic insight and a specific "Actionable Pivot" to recover their lost margins.
-      Return the result as a JSON object with "summary" and "actionablePivot".
+      Task: Provide a high-impact strategic insight to recover their lost margins.
+      Return the result as a JSON object with:
+      - "keyIssue": A clear statement of the primary forensic leak.
+      - "businessExplanation": A detailed explanation of why this is happening.
+      - "estimatedImpact": A string describing the financial or operational impact (e.g., "£15,000 annual loss").
+      - "recommendations": A JSON array of 1-2 specific, actionable strings.
     `;
 
     try {
@@ -63,7 +67,12 @@ export class AIService {
       return JSON.parse(cleanJson);
     } catch (error) {
       console.error('Gemini Error:', error);
-      return { summary: 'AI insight currently unavailable.', actionablePivot: 'Please review your operational waste manual.' };
+      return { 
+        keyIssue: 'Strategic insight currently stabilizing.', 
+        businessExplanation: 'The intelligence engine is processing your operational data to identify the primary margin leak.',
+        estimatedImpact: 'Calculating recovery potential...',
+        recommendations: ['Review operational waste manual', 'Consult with a 247GBS specialist']
+      };
     }
   }
 
